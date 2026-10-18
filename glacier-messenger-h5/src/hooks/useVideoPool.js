@@ -214,6 +214,10 @@ export function useVideoPool({ maxLive = 4 } = {}) {
   const pumpingRef = useRef(false)
   const activeRef = useRef(null) // 当前正在播放的视频名（预取必须给它让路）
   const urgentRef = useRef(false) // 玩家已点选项、马上要播的片：插队 + 不等让路
+  /* 「上层主动暂停」的片：浮层盖住页面时正片会被 pause，这是有意为之。
+     PooledVideo 的自动补播必须避开它们，否则浮层底下会自己响起来。 */
+  const pausedByAppRef = useRef(null)
+  if (!pausedByAppRef.current) pausedByAppRef.current = new Set()
 
   // 首屏门控：默认关闭，App 在章节正片彻底下完后调用 releaseGate() 打开。
   // 这样首屏带宽 100% 归正片，起播时间不受任何预取干扰。
@@ -386,12 +390,16 @@ export function useVideoPool({ maxLive = 4 } = {}) {
     const slot = poolRef.current.get(name)
     if (!slot) return false
     try {
+      pausedByAppRef.current.add(name)
       slot.el.pause()
       return true
     } catch {
       return false
     }
   }, [])
+
+  /** 是不是「上层主动暂停」的：自动补播据此让路 */
+  const isPausedByApp = useCallback((name) => pausedByAppRef.current.has(name), [])
 
   /**
    * 把静音状态同步到「正在页面上播放」的元素，并让它们继续播。
@@ -433,7 +441,10 @@ export function useVideoPool({ maxLive = 4 } = {}) {
   const resume = useCallback((name) => {
     const slot = poolRef.current.get(name)
     if (!slot || !healthy(slot.el)) return false
+    // 已经不在页面上的元素不要起播：否则会在浮层/结局页背后传出「幽灵音」
+    if (!slot.el.isConnected) return false
     try {
+      pausedByAppRef.current.delete(name)
       const p = slot.el.play()
       if (p && typeof p.catch === 'function') p.catch(() => {})
       return true
@@ -451,8 +462,11 @@ export function useVideoPool({ maxLive = 4 } = {}) {
 
   /** 标记当前正在播放的视频（预取会为它让路） */
   const markActive = useCallback((name, on = true) => {
-    if (on) activeRef.current = name
-    else if (activeRef.current === name) activeRef.current = null
+    if (on) {
+      activeRef.current = name
+      // 新挂载的元素一定是要播的：清掉上一轮遗留的「上层暂停」标记
+      pausedByAppRef.current.delete(name)
+    } else if (activeRef.current === name) activeRef.current = null
   }, [])
 
   /** 打开首屏门控：章节正片已彻底下完，此后放行预取 */
@@ -494,6 +508,7 @@ export function useVideoPool({ maxLive = 4 } = {}) {
       // 被释放的若是「当前播放片」，必须清掉引用：
       // 否则预取的让路逻辑会在一个 src 已被摘除的元素上干等 25 秒，预取全线停滞。
       if (activeRef.current === n) activeRef.current = null
+      pausedByAppRef.current.delete(n)
       pool.delete(n)
     }
   }, [])
@@ -512,6 +527,7 @@ export function useVideoPool({ maxLive = 4 } = {}) {
       }
     }
     activeRef.current = null
+    pausedByAppRef.current.clear()
     pool.clear()
   }, [])
 
@@ -533,6 +549,7 @@ export function useVideoPool({ maxLive = 4 } = {}) {
       prune,
       releaseAll,
       applyMuted,
+      isPausedByApp,
       netSlow,
       cap: capRef.current,
       currentNames,
@@ -546,6 +563,7 @@ export function useVideoPool({ maxLive = 4 } = {}) {
       pause,
       resume,
       markActive,
+      isPausedByApp,
       whenPlayable,
       whenBuffered,
       releaseGate,

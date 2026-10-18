@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { posterUrl, posterUrlJpg } from '../hooks/useVideoPool'
 import { makeT } from '../i18n/ui.js'
+import { onUserGesture, userGestureSeen } from '../lib/autoplay.js'
 
 /**
  * 视频默认音量。
@@ -9,9 +10,10 @@ import { makeT } from '../i18n/ui.js'
 const DEFAULT_VOLUME = 0.7
 
 /**
- * 池化视频组件：
+ * 池化视频组件（全程自动播放，不出现「轻触播放」入口）：
  *  - 视频元素来自 useVideoPool 池（复用，不反复创建解码器）
  *  - 先渲染 WebP 封面占位，视频 canplay 后交叉淡入 → 无黑块、无布局跳动
+ *  - 起播被内核拦时：先退静音保住画面，再挂到「下一次手势」上补播 / 补声音
  *  - 卸载时只 pause 并移出 DOM，元素本身保留在池中待复用
  *  - muted/loop 变化走独立的属性同步 effect，不触发重挂载
  */
@@ -32,9 +34,6 @@ export default function PooledVideo({
 }) {
   const t = useMemo(() => makeT(lang), [lang])
   const hostRef = useRef(null)
-  /* 自动播放彻底失败时的兜底：iOS 低电量模式、部分 App 内置浏览器会连静音播放都拒。
-     此时不能让页面停在转圈（或黑屏），给一个「轻触播放」按钮让玩家自己点一下。 */
-  const [needsGesture, setNeedsGesture] = useState(false)
   const unmountingRef = useRef(false)
   const readyRef = useRef(onReady)
   readyRef.current = onReady
@@ -46,6 +45,9 @@ export default function PooledVideo({
   completedRef.current = onCompleted
   const blockedRef = useRef(onBlocked)
   blockedRef.current = onBlocked
+  /* 挂载 effect 只依赖 name/pool，读 muted 必须走 ref，否则拿到的是首次渲染的旧值 */
+  const mutedRef = useRef(muted)
+  mutedRef.current = muted
   const [ready, setReady] = useState(false)
 
   /* 挂载：取池元素 → 附着到 DOM → 起播 */
@@ -57,42 +59,109 @@ export default function PooledVideo({
 
     // 起播前先落定音量属性：池里建出来的元素一律是 muted=true，
     // 若等属性同步 effect 再改，就会「先静音播一小段、再出声」。
-    el.muted = muted
+    el.muted = mutedRef.current
     if (typeof volume === 'number') el.volume = Math.max(0, Math.min(1, volume))
 
     // 切换片名时必须先回到「未就绪」：否则会沿用上一支片的 ready=true，
     // 新片还没数据就撤掉封面和转圈 —— 看到的就是一片黑。
     setReady(false)
-    setNeedsGesture(false)
 
     let settled = false
     let stuckTimer = null
     let retried = false
+    let retryTimer = null
+    let retryCount = 0
+    let disposed = false
 
-    const tryPlay = () => {
-      if (!autoPlay) return
+    const stopRetry = () => {
+      if (retryTimer) {
+        clearTimeout(retryTimer)
+        retryTimer = null
+      }
+    }
+
+    /* 起播被拒后的重试：内核拒绝是一次性的判定，等一会儿（或等一次点击）常常就好了。
+       次数封顶，避免低电量模式里无限空转。 */
+    const scheduleRetry = (delay) => {
+      if (disposed || retryTimer || retryCount >= 8) return
+      retryCount += 1
+      retryTimer = setTimeout(
+        () => {
+          retryTimer = null
+          attempt()
+        },
+        delay ?? (retryCount <= 2 ? 800 : 2500),
+      )
+    }
+
+    /* 现在到底该不该播：被摘下 DOM / 上层为浮层主动暂停 / 已经在播，都不该抢播 */
+    const canPlayNow = () => {
+      if (disposed || !autoPlay || !el.isConnected) return false
+      if (!el.paused) return false
+      if (pool.pausedByApp?.(name)) return false
+      return true
+    }
+
+    /* 静音兜底：画面必须先动起来，声音交给下一次手势补 */
+    const playMuted = () => {
+      if (disposed) return
+      el.muted = true
+      blockedRef.current?.()
+      try {
+        const p = el.play()
+        if (p && typeof p.catch === 'function') p.catch(() => scheduleRetry())
+      } catch {
+        scheduleRetry()
+      }
+    }
+
+    /* 起播：有手势解锁过才试带声，被拒立刻退静音 —— 任何情况下都不停在封面上等玩家点 */
+    const attempt = () => {
+      if (!canPlayNow()) return
+      const wantSound = !mutedRef.current && userGestureSeen()
+      el.muted = !wantSound
       try {
         const p = el.play()
         if (p && typeof p.catch === 'function') {
           p.catch((e) => {
-            // 浏览器拦截了「无手势的有声自动播放」。此时绝不能让画面停住：
-            // 退回落静音继续播，并通知上层把开关改回静音，UI 与实际保持一致。
-            if (!el.muted && e && e.name === 'NotAllowedError') {
-              el.muted = true
-              const p2 = el.play()
-              // 静音都播不了（iOS 低电量模式 / 严格内核）→ 交给玩家手动点一下
-              if (p2 && typeof p2.catch === 'function') p2.catch(() => setNeedsGesture(true))
-              blockedRef.current?.()
+            if (disposed) return
+            // AbortError：切 src / 换章打断，属正常现象，不当作失败
+            if (e && e.name === 'AbortError') return
+            if (!el.muted) {
+              playMuted()
               return
             }
-            // 非 NotAllowedError（AbortError 多因 src 切换，可忽略）之外一律给手动入口
-            if (e && e.name !== 'AbortError') setNeedsGesture(true)
+            scheduleRetry()
           })
         }
       } catch {
-        setNeedsGesture(true)
+        scheduleRetry()
       }
     }
+
+    /* 正在静音播、但玩家其实开着声音 → 在手势里补一次「有声起播」。
+       iOS 只放行同一个调用栈里的 play()，所以这个函数只能在手势回调里调。 */
+    const applySound = () => {
+      if (disposed || !el.isConnected) return
+      if (mutedRef.current || !el.muted) return
+      if (pool.pausedByApp?.(name)) return
+      el.muted = false
+      try {
+        const p = el.play()
+        if (p && typeof p.catch === 'function') p.catch(() => playMuted())
+      } catch {
+        playMuted()
+      }
+    }
+
+    /* 任意一次真实手势（点选项、开声音、滑动…）→ 同步补播。
+       这样「轻触播放」按钮可以彻底不要：玩家本来就要点选项才能继续。 */
+    const offGesture = onUserGesture(() => {
+      retryCount = 0
+      stopRetry()
+      applySound()
+      attempt()
+    })
 
     const markReady = () => {
       if (settled) return
@@ -103,7 +172,7 @@ export default function PooledVideo({
       el.classList.add('ready')
       setReady(true)
       readyRef.current?.(el)
-      tryPlay()
+      attempt()
     }
 
     /* 卡死自检：迟迟等不到 canplay，多为预取阶段留下的坏元素（已 error 或 src 被摘）。
@@ -135,14 +204,20 @@ export default function PooledVideo({
     const handleEnded = () => endedRef.current?.()
     el.addEventListener('ended', handleEnded)
 
-    /* 播着播着被浏览器暂停（切后台回来、内核策略收紧）→ 同样给出手动入口。
-       卸载时的 pause 不算，用 unmountingRef 排除，否则换章会闪一下按钮。 */
+    /* 播着播着被内核暂停（切后台回来、iOS 低电量模式、策略收紧）→ 自动补播，
+       不再弹「轻触播放」。上层为浮层主动暂停的、自然播完的，都不算。 */
     const handlePause = () => {
-      if (unmountingRef.current) return
-      if (el.readyState >= 2) setNeedsGesture(true)
+      if (unmountingRef.current || disposed) return
+      if (!el.isConnected) return
+      if (pool.pausedByApp?.(name)) return
+      if (!loop && el.ended) return
+      scheduleRetry(600)
     }
     el.addEventListener('pause', handlePause)
-    const handlePlaying = () => setNeedsGesture(false)
+    const handlePlaying = () => {
+      retryCount = 0
+      stopRetry()
+    }
     el.addEventListener('playing', handlePlaying)
 
     let playedOnce = false
@@ -166,10 +241,13 @@ export default function PooledVideo({
       el.style.width = ''
       el.style.height = ''
     }
-    tryPlay()
+    attempt()
 
     return () => {
+      disposed = true
       unmountingRef.current = true
+      offGesture()
+      stopRetry()
       if (stuckTimer) clearTimeout(stuckTimer)
       el.removeEventListener('canplay', markReady)
       el.removeEventListener('error', onError)
@@ -198,7 +276,7 @@ export default function PooledVideo({
     if (typeof volume === 'number') el.volume = Math.max(0, Math.min(1, volume))
     // 解除静音后补一次 play()：静音状态下起播的视频，部分浏览器在 unmute 时会直接暂停
     // （Chrome 的自动播放策略在 unmute 那一刻会重新判定）。这次 play() 紧随用户手势
-    // （React 离散事件是同步 flush 的），会被放行；万一仍被拒，tryPlay 里已静音回落。
+    // （React 离散事件是同步 flush 的），会被放行；万一仍被拒，attempt 里已静音回落。
     if (wasMuted && !muted && autoPlay) {
       const p = el.play()
       if (p && typeof p.catch === 'function') p.catch(() => {})
@@ -219,35 +297,30 @@ export default function PooledVideo({
         />
       </picture>
       <div ref={hostRef} className="contents" />
-      {!ready && !needsGesture && (
+      {!ready && (
         <div className="absolute inset-0 grid place-items-center">
           <div className="h-7 w-7 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
         </div>
       )}
-      {/* 自动播放被内核彻底拒绝时的手动入口（点击 = 真实用户手势，必定放行） */}
-      {needsGesture && (
-        <button
-          type="button"
-          data-tap-to-play
-          onClick={() => {
-            const el = pool.peek?.(name)
-            if (!el) return
-            try {
-              const p = el.play()
-              if (p && typeof p.catch === 'function') p.catch(() => {})
-              else setNeedsGesture(false)
-            } catch {
-              /* 保留按钮，玩家可以再点 */
-            }
-          }}
-          className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 text-sm font-medium text-cyan-200"
-        >
-          <svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor" aria-hidden="true">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-          <span>{t('tapToPlay')}</span>
-        </button>
-      )}
+      {/* 兜底热区：内核彻底拒绝时（iOS 低电量模式）点画面任意处都是一次真实手势。
+          不显示任何文案，正常播放时它不存在，所以永远不会出现「轻触播放」提示。 */}
+      <button
+        type="button"
+        aria-label={t('tapToPlay')}
+        tabIndex={-1}
+        onClick={() => {
+          const el = pool.peek?.(name)
+          if (!el) return
+          el.muted = mutedRef.current
+          try {
+            const p = el.play()
+            if (p && typeof p.catch === 'function') p.catch(() => {})
+          } catch {
+            /* noop */
+          }
+        }}
+        className="absolute inset-0 cursor-default bg-transparent"
+      />
     </div>
   )
 }
