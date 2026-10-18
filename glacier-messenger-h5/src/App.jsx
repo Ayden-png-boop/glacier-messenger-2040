@@ -290,6 +290,9 @@ export default function App() {
       // 后果动画马上就要播，提前插队预取（不等正片让路），否则浮层里会干等转圈
       if (choice.animation) pool.prefer?.([choice.animation])
       const result = commitChoice(game, choice)
+      // 若这一步直接进结局：趁转场浮层还在放，先把结局正片拉下来。
+      // 否则转场结束、结局页挂载时才开始下载，玩家看到的就是一段黑屏转圈。
+      if (result.ending && ENDINGS[result.ending]) pool.prefer?.([ENDINGS[result.ending].video])
       beginTransition(choice, result, pick(choice.consequences, lang))
     },
       [game, lang, transition, qteChoice, beginTransition, pool],
@@ -309,6 +312,7 @@ export default function App() {
         ? `${t('qteSuccess')}\n${base}`
         : `${t('qteFail')}\n${base}`
       const result = commitChoice(game, { ...choice, effects })
+      if (result.ending && ENDINGS[result.ending]) pool.prefer?.([ENDINGS[result.ending].video])
       beginTransition(choice, result, consText)
     },
     [qteChoice, game, lang, t, beginTransition, pool],

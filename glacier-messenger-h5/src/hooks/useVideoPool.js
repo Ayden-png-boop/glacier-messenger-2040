@@ -255,8 +255,14 @@ export function useVideoPool({ maxLive = 4 } = {}) {
     }
     slot.usedAt = Date.now()
     slot.warmed = false
-    // 预取元素建的时候是 display:none，被复用播放时必须还原，否则视频不可见
+    // 预取元素建的时候被压成 1×1 + display:none（省显存、不进布局），
+    // 复用播放时必须把这些**内联样式全部还原**。只还原 display 是不够的：
+    // 内联 width/height 的优先级高于 .video-shell video{width:100%;height:100%}，
+    // 元素会保持 1×1 —— 封面此时已被 .ready 隐藏，壳子只剩背景色，表现为整块黑屏
+    // （首章直建的元素没有内联尺寸，所以「第一章正常、后面时好时坏」）。
     slot.el.style.display = ''
+    slot.el.style.width = ''
+    slot.el.style.height = ''
     return slot.el
   }, [])
 

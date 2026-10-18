@@ -160,6 +160,12 @@ export default function PooledVideo({
     else el.addEventListener('ended', markCompleted)
 
     host.appendChild(el)
+    /* 兜底：预取时元素被压过 1×1（内联样式），一旦有哪条路径漏了还原，
+       画面会「在播但整块黑」。进 DOM 后统一清一次内联尺寸，交给 CSS 撑满。 */
+    if (el.style.width || el.style.height) {
+      el.style.width = ''
+      el.style.height = ''
+    }
     tryPlay()
 
     return () => {
