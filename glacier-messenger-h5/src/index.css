@@ -1,0 +1,209 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-glacier-50: #f0f9ff;
+  --color-glacier-100: #e0f2fe;
+  --color-glacier-300: #7dd3fc;
+  --color-glacier-400: #38bdf8;
+  --color-glacier-500: #0ea5e9;
+  --color-abyss-900: #0f172a;
+  --color-abyss-800: #1e293b;
+
+  --animate-orb: orb 7s ease-in-out infinite;
+  --animate-fade-up: fadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade-in: fadeIn 0.35s ease both;
+  --animate-pop: pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-spin-slow: spin 0.9s linear infinite;
+}
+
+@keyframes orb {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate3d(14px, -22px, 0) scale(1.12);
+    opacity: 0.9;
+  }
+}
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+/* 视口高度：iOS Safari 的 100vh 含/不含地址栏会跳变，支持 dvh 时用 dvh。
+   统一走变量，JSX 内联样式写 var(--vh100, 100vh)，老浏览器自动回落。 */
+@supports (height: 100dvh) {
+  :root {
+    --vh100: 100dvh;
+    --vh85: 85dvh;
+    --vh60: 60dvh;
+  }
+}
+
+html {
+  /* iOS 橡皮筋回弹：只写 body 不够，Safari 需要 html 上也有 */
+  overscroll-behavior-y: none;
+}
+
+body {
+  margin: 0;
+  background: #0f172a;
+  color: #fff;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Noto Sans JP', 'Noto Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  /* iOS 长按视频/图片会弹出「存储图像」系统菜单 */
+  -webkit-touch-callout: none;
+}
+
+/* 交互控件：禁选中 + 消除 300ms 点击延迟（老 Android/iOS WebView） */
+button,
+select,
+label,
+.ChoiceHit,
+[role='button'] {
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* 让移动端纵向滚动带惯性与隐藏滚动条 */
+.scroll-area {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.scroll-area::-webkit-scrollbar {
+  display: none;
+}
+
+/* 刘海/手势条安全区 */
+/* 注意：这里必须用 max() 兜住 1rem。
+   本类写在 utilities 之后，同优先级后者胜 —— 早期版本直接写 env(...)，
+   在刘海机型上固然正确，但在普通机型上 env() 求值为 0，
+   反而把 Tailwind 的 px-4 覆盖成了 0，整页贴边。
+   用 max() 后：支持 max() 的浏览器取「1rem 与安全区」的较大者；
+   不支持 max() 的老浏览器整条声明作废，px-4 的 1rem 自动生效 —— 两头都对。 */
+.safe-x {
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.safe-b {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+}
+
+/* 长中文段落排版 */
+.story-text {
+  white-space: pre-line;
+  text-wrap: pretty;
+}
+
+/* 视频容器：封面图先渲染，视频就绪后交叉淡入，避免黑块与布局跳动。
+   注意：视频宿主 div 是 display:contents，因此必须用后代选择器而非子选择器。 */
+.video-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: #020617;
+  aspect-ratio: 16 / 9;
+}
+/* iOS 14 及更老（Safari <15）不认 aspect-ratio → 容器高度会塌成 0，正片直接消失。
+   用 padding-top 百分比撑高，效果等价。 */
+@supports not (aspect-ratio: 16 / 9) {
+  .video-shell {
+    height: 0;
+    padding-bottom: 56.25%;
+  }
+}
+.video-shell img {
+  position: absolute;
+  /* inset 是 Safari 14.1 才有的简写，老版本要显式四边 */
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 0.5s ease;
+}
+.video-shell video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+.video-shell video.ready {
+  opacity: 1;
+}
+.video-shell img.ready {
+  opacity: 0;
+}
+.video-shell > video.ready {
+  opacity: 1;
+}
+.video-shell > img.ready {
+  opacity: 0;
+}
+
+/* 选项按钮 */
+.choice-btn {
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.2s ease,
+    box-shadow 0.28s ease,
+    background 0.2s ease;
+}
+.choice-btn:not(:disabled):active {
+  transform: scale(0.985);
+}
+
+/* QTE 阀门 */
+.qte-target {
+  animation: pop 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}

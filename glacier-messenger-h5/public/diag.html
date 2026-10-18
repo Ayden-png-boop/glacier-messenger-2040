@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>环境自检 · 冰川信使</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:#0f172a; color:#e5e7eb;
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; color:#67e8f9; }
+  h2 { font-size:14px; margin:20px 0 8px; color:#93c5fd; border-bottom:1px solid #1e293b; padding-bottom:4px; }
+  .sub { color:#94a3b8; font-size:12px; margin-bottom:8px; }
+  table { width:100%; border-collapse:collapse; }
+  td { padding:5px 6px; border-bottom:1px solid #1e293b; vertical-align:top; }
+  td:first-child { width:44%; color:#cbd5e1; }
+  .ok { color:#4ade80; font-weight:600; }
+  .bad { color:#f87171; font-weight:600; }
+  .warn { color:#fbbf24; font-weight:600; }
+  code { background:#1e293b; padding:1px 4px; border-radius:3px; font-size:12px; word-break:break-all; }
+  button { width:100%; margin-top:10px; padding:12px; border-radius:8px; border:1px solid #22d3ee;
+    background:#0e7490; color:#fff; font-size:15px; }
+  video { width:100%; margin-top:8px; border-radius:6px; background:#000; aspect-ratio:16/9; }
+  #log { margin-top:14px; font-size:12px; color:#94a3b8; white-space:pre-wrap; }
+  details { margin-top:16px; } summary { color:#93c5fd; cursor:pointer; }
+</style>
+</head>
+<body>
+<h1>环境自检 · 冰川信使</h1>
+<div class="sub">真机打开本页 → 点一次「开始自检」→ 截图发回，即可判断该机型是否落入兼容风险。</div>
+
+<h2>一、浏览器内核</h2>
+<table id="t-ua"></table>
+
+<h2>二、CSS 特性（Tailwind v4 的四层坑）</h2>
+<table id="t-css"></table>
+
+<h2>三、媒体能力</h2>
+<table id="t-media"></table>
+
+<h2>四、实测：加载本站真实素材</h2>
+<table id="t-real"><tr><td colspan="2" style="color:#64748b">点击下方按钮后填充（需真实点击一次）</td></tr></table>
+<video id="v" playsinline webkit-playsinline muted loop autoplay preload="auto"></video>
+<button id="btn" type="button">开始自检（需真实点击一次）</button>
+<div id="log"></div>
+
+<details><summary>原始 UA</summary><div id="ua" style="margin-top:6px"><code></code></div></details>
+
+<script>
+var $=function(s){return document.querySelector(s)}
+var rows=function(t,a){$(t).innerHTML=a.map(function(x){return '<tr><td>'+x[0]+'</td><td>'+x[1]+'</td></tr>'}).join('')}
+var c=function(ok,y,n){return ok?'<span class="ok">'+y+'</span>':'<span class="bad">'+n+'</span>'}
+var w=function(t){return '<span class="warn">'+t+'</span>'}
+var BASE=(location.pathname.replace(/diag\.html$/,'')||'./')
+
+function probeUA(){
+  var ua=navigator.userAgent
+  $('#ua code').textContent=ua
+  var name='未知',ver=''
+  var m=/(?:Chrome|CriOS)\/([\d.]+)/.exec(ua); if(m){name='Chromium';ver=m[1]}
+  var fx=/Firefox\/([\d.]+)/.exec(ua); if(fx){name='Firefox';ver=fx[1]}
+  var ed=/Edg(?:e|A|iOS)?\/([\d.]+)/.exec(ua); if(ed){name='Edge';ver=ed[1]}
+  var mm=/MicroMessenger\/([\d.]+)/.exec(ua)
+  var ios=/iPhone|iPad|iPod/.test(ua), android=/Android/.test(ua)
+  var iosVer=''; if(ios){var v=/OS (\d+)[._](\d+)/.exec(ua); if(v) iosVer=v[1]+'.'+v[2]}
+  var safariOnly=/Safari/.test(ua)&&!/Chrome|CriOS|Firefox|Edg|MicroMessenger/.test(ua)
+  if(safariOnly){var mv=/Version\/([\d.]+)/.exec(ua);name='Safari';ver=mv?mv[1]:''}
+  var n=parseInt(ver,10), risk
+  if(mm) risk=w('微信内置 '+mm[1]+' · UA 未必反映真内核，以实测为准')
+  else if(name==='Chromium'&&n&&n<111) risk=w(name+' '+n+' < 111 · 落入 Tailwind v4 风险区（靠兜底块接住）')
+  else if(name==='Safari'&&n&&n<16) risk=w('Safari '+ver+' < 16 · 落入风险区（靠兜底块接住）')
+  else risk=c(true,'版本达标')
+  rows('#t-ua',[
+    ['内核','<b>'+name+' '+(ver||'')+'</b>'],
+    ['系统', ios?('iOS '+iosVer):(android?('Android '+(/Android ([\d.]+)/.exec(ua)?.[1]||'')):'桌面/其它')],
+    ['微信内置', mm?w('是'):'否'],
+    ['风险判定', risk]
+  ])
+}
+
+function probeCSS(){
+  var sup=function(v){try{return !!(window.CSS&&CSS.supports&&CSS.supports(v))}catch(e){return false}}
+  /* 坑：CSS.supports() 只吃「属性:值」或条件表达式，传 @layer 块永远返回 false，
+     会把支持 @layer 的现代内核误报成不支持。必须真插一条 @layer 规则看是否被解析。 */
+  var layerOk=false
+  try{
+    var st=document.createElement('style')
+    st.textContent='@layer diagprobe{.x{color:red}}'
+    document.head.appendChild(st)
+    layerOk=!!(st.sheet&&st.sheet.cssRules&&st.sheet.cssRules.length>0)
+    st.parentNode.removeChild(st)
+  }catch(e){layerOk=false}
+  var items=[
+    ['@layer 层叠规则',layerOk],
+    ['oklch() 颜色',sup('color: oklch(50% 0.1 200)')],
+    ['color-mix()',sup('color: color-mix(in oklab, red, blue)')],
+    ['渐变 in oklab',sup('background-image: linear-gradient(to right in oklab, red, blue)')],
+    ['aspect-ratio',sup('aspect-ratio: 16 / 9')],
+    ['100dvh',sup('height: 100dvh')],
+    ['backdrop-filter',sup('backdrop-filter: blur(4px)')||sup('-webkit-backdrop-filter: blur(4px)')],
+    ['clamp()',sup('font-size: clamp(12px, 4vw, 28px)')],
+    ['max()',sup('padding-left: max(1rem, 2px)')]
+  ]
+  var out=items.map(function(x){return [x[0], x[1]?c(true,'支持'):w('不支持 → 由兜底块接住')]})
+  var p=document.createElement('div')
+  p.style.cssText='position:fixed;left:-9999px;background-color:var(--color-cyan-400,#22d3ee)'
+  document.body.appendChild(p)
+  var bg=getComputedStyle(p).backgroundColor; p.remove()
+  out.push(['色板变量实算值',(bg&&bg!=='rgba(0, 0, 0, 0)')?('<code>'+bg+'</code> '+c(true,'正常')):c(false,'取不到 → 色板失效')])
+  rows('#t-css',out)
+}
+
+function probeMedia(){
+  var v=document.createElement('video'), a=document.createElement('audio')
+  var ct=function(el,t){try{return el.canPlayType(t)||''}catch(e){return ''}}
+  var main=ct(v,'video/mp4; codecs="avc1.4D401F"')
+  var high=ct(v,'video/mp4; codecs="avc1.64001F"')
+  var aac=ct(a,'audio/mp4; codecs="mp4a.40.2"')
+  var mp3=ct(a,'audio/mpeg')
+  var zh=function(v){return v==='probably'?'支持（probably）':(v==='maybe'?'可能支持（maybe）':'不支持')}
+  rows('#t-media',[
+    ['H.264 Main profile',main?c(true,zh(main)):c(false,'不支持')],
+    ['H.264 High profile',high?c(true,zh(high)):w('不支持 → 素材已统一转 Main')],
+    ['AAC-LC（视频音轨）',aac?c(true,zh(aac)):c(false,'不支持')],
+    ['MP3（四语配音）',mp3?c(true,zh(mp3)):c(false,'不支持')],
+    ['WebP 封面','<span id="webp">检测中…</span>']
+  ])
+  /* 用站点真实封面探测：data-URI 小图可能是无效 WebP，会造成「不支持」误报 */
+  var im=new Image()
+  im.onload=function(){$('#webp').innerHTML=(im.width>0?c(true,'支持'):w('解码失败'))}
+  im.onerror=function(){$('#webp').innerHTML=w('不支持 → 已自动回落 JPG')}
+  im.src=BASE+'posters/ch01_glacier_crack.webp'
+}
+
+function realTest(){
+  var log=function(s){var d=$('#log');d.textContent+='\n'+s}
+  var v=$('#v')
+  var src=BASE+'videos/ch01_glacier_crack.mp4'
+  log('加载 '+src)
+  var t0=Date.now()
+  v.src=src
+  var loaded=new Promise(function(res){
+    var timer=setTimeout(function(){res(false)},12000)
+    var ok=function(){clearTimeout(timer);res(true)}
+    var no=function(){clearTimeout(timer);res(false)}
+    v.addEventListener('loadeddata',ok,{once:true})
+    v.addEventListener('error',no,{once:true})
+  })
+  v.load()
+  loaded.then(function(got){
+    var dur=v.duration
+    var playPromise
+    try{ playPromise=v.play() }catch(e){ playPromise=Promise.reject(e) }
+    return Promise.resolve(playPromise).then(function(){return [got,true,'']},function(e){return [got,false,(e&&e.name)||String(e)]})
+      .then(function(r){
+        return new Promise(function(res){setTimeout(function(){res(r)},1500)})
+      })
+  }).then(function(r){
+    var got=r[0], playOk=r[1], errName=r[2]
+    var html=[
+      ['视频元数据',got?c(true,'已加载 '+((Date.now()-t0)/1000).toFixed(1)+'s，时长 '+(v.duration?v.duration.toFixed(1)+'s':'—')):c(false,'12s 内未加载（网络或解码失败）')],
+      ['静音自动播放',playOk?c(true,'已放行'):c(false,'被拒：'+errName)],
+      ['画面实际推进',v.currentTime>0.05?c(true,'currentTime='+v.currentTime.toFixed(2)+'s'):c(false,'停在 0（解码或策略问题）')],
+      ['分辨率',v.videoWidth?(v.videoWidth+'×'+v.videoHeight):'—'],
+      ['解码错误',v.error?c(false,v.error.code+' '+v.error.message):c(true,'无')]
+    ]
+    var au=new Audio(BASE+'voice/zh/VO-003.mp3')
+    var ap; try{ap=au.play()}catch(e){ap=Promise.reject(e)}
+    return Promise.resolve(ap).then(function(){
+      html.push(['配音 MP3 播放',c(true,'已放行')])
+    },function(e){
+      html.push(['配音 MP3 播放',c(false,'被拒：'+((e&&e.name)||String(e)))])
+    }).then(function(){
+      $('#t-real').innerHTML=html.map(function(x){return '<tr><td>'+x[0]+'</td><td>'+x[1]+'</td></tr>'}).join('')
+      log('完成。请截图本页发回。')
+    })
+  })
+}
+
+probeUA(); probeCSS(); probeMedia()
+$('#btn').addEventListener('click',function(){$('#log').textContent=''; realTest()})
+</script>
+</body>
+</html>

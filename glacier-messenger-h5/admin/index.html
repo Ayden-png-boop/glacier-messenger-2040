@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>冰川信使 2040 · 数据后台</title>
+    <script>
+      // 自动推断接口前缀：后台位于 <根>/Ayden-BHG/admin/ 时，接口在 <根>/Ayden-BHG/national/api
+      // 部署到别处时也可在 nginx 里改写此值，无需重新构建
+      (function () {
+        var m = location.pathname.match(/^(\/.*?)\/admin\/?(?:index\.html)?$/)
+        window.__GM_API_BASE__ = m ? m[1] + '/national/api' : './api'
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.jsx"></script>
+  </body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "glacier-messenger-h5",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "冰川信使：斑头雁的2040 — 手机端 H5 剧情互动游戏",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "lucide-react": "^0.539.0",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.13",
+    "@vitejs/plugin-react": "^5.0.2",
+    "tailwindcss": "^4.1.13",
+    "vite": "^7.1.5"
+  }
+}

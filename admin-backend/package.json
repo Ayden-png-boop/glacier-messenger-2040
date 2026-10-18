@@ -1,0 +1,12 @@
+{
+  "name": "glacier-messenger-admin-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "冰川信使 2040 — 访问统计与管理后台后端（零依赖）",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js --port 8787",
+    "seed": "node server.js --seed"
+  }
+}

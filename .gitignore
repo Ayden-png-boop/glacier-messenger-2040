@@ -1,0 +1,33 @@
+# 依赖与构建产物
+node_modules/
+dist/
+dist-*/
+*.tar.gz
+*.zip
+
+# 大体积中间产物／备份（不入库）
+glacier-messenger-h5/_videos_backup_high_profile/
+_assets_extract/
+output/
+_shots/
+_probe/
+_tools/_calib/
+_tools/_shot*.png
+冰川信使：斑头雁的2040-Ayden参赛作品(1)/
+
+# 私密内容：部署脚本与服务器私钥绝不入库
+_deploy/
+
+# 后台的账号配置与用户统计数据（含哈希口令、访问记录）
+admin-backend/config.json
+admin-backend/data/
+
+# 工作区元数据
+.workbuddy/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
