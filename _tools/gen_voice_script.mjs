@@ -75,7 +75,11 @@ function classify(s, lang) {
   return { type: 'narration', line: s }
 }
 
-/* 连续同类句子合并成段 */
+/* 连续同类句子合并成段。
+   注意：合并时的连接符按语言区分 —— 中文/日文直接拼接，英文必须补空格，
+   否则会得到 "apart.A web of fissures" 这种句子粘在一起的结果
+   （中文一句话常常对应英文两句，对齐时被合并成一条，最容易在这里露馅）。 */
+const JOIN = { zh: '', ja: '', en: ' ', fr: ' ' }
 function groupSentences(sentences, lang) {
   const groups = []
   for (const s of sentences) {
@@ -89,7 +93,7 @@ function groupSentences(sentences, lang) {
       groups.push({ type: c.type, speaker: c.speaker || null, parts: [c.line] })
     }
   }
-  return groups.map((g) => ({ type: g.type, speaker: g.speaker, text: g.parts.join('') }))
+  return groups.map((g) => ({ type: g.type, speaker: g.speaker, text: g.parts.join(JOIN[lang] ?? '') }))
 }
 
 /**
@@ -113,7 +117,7 @@ function alignPair(zhText, enText) {
       }
       continue
     }
-    const merge = (gs, type) => gs.filter((g) => g.type === type).map((g) => g.text).join('')
+    const merge = (gs, type, lang) => gs.filter((g) => g.type === type).map((g) => g.text).join(JOIN[lang] ?? '')
     const zD = zg.filter((g) => g.type === 'dialogue')
     const eD = eg.filter((g) => g.type === 'dialogue')
     let dDone = false
@@ -123,11 +127,11 @@ function alignPair(zhText, enText) {
       if (g.type === 'narration') {
         if (nDone) continue
         nDone = true
-        out.push({ type: 'narration', speaker: null, zh: merge(zg, 'narration'), en: merge(eg, 'narration') })
+        out.push({ type: 'narration', speaker: null, zh: merge(zg, 'narration', 'zh'), en: merge(eg, 'narration', 'en') })
       } else if (g.type === 'visual') {
         if (vDone) continue
         vDone = true
-        out.push({ type: 'visual', speaker: null, zh: merge(zg, 'visual'), en: merge(eg, 'visual') })
+        out.push({ type: 'visual', speaker: null, zh: merge(zg, 'visual', 'zh'), en: merge(eg, 'visual', 'en') })
       } else {
         if (dDone) continue
         dDone = true
